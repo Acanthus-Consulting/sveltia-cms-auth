@@ -1,0 +1,42 @@
+name: Upstream check
+
+on:
+  schedule:
+    - cron: '23 14 * * 1' # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Compare src/ with sveltia/sveltia-cms-auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git remote add upstream https://github.com/sveltia/sveltia-cms-auth.git
+          git fetch --quiet upstream main
+          if git diff --quiet HEAD upstream/main -- src/; then
+            echo "src/ matches upstream."
+            exit 0
+          fi
+          title="Upstream sign-in code changed: sync this fork"
+          open=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq length)
+          if [ "$open" != "0" ]; then
+            echo "Issue already open."
+            exit 0
+          fi
+          {
+            echo "Sveltia changed the code this Worker runs (src/). Review and sync:"
+            echo
+            git log --format='- %cs %s (%h)' HEAD..upstream/main -- src/
+            echo
+            echo "To update: Sync fork, then check the Cloudflare build and test /auth."
+          } > body.md
+          gh issue create --title "$title" --body-file body.md
